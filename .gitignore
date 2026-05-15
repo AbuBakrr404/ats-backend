@@ -6,3 +6,7 @@ venv/
 *.egg-info/
 dist/
 build/
+token_response.json
+parse_response.json
+*.docx
+*.bat
