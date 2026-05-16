@@ -11,7 +11,7 @@ import json
 import tempfile
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from supabase import Client
@@ -21,6 +21,7 @@ from ..pro_talent.cv_parser import extract_cv_text
 from ..pro_talent.ai_extractor import extract_candidate_info
 from ..pro_talent.template_filler import fill_template, make_safe_filename
 from ..services.summary import generate_recruiter_summary
+from ..rag.service import embed_candidate
 from ..config import settings
 
 router = APIRouter()
@@ -40,6 +41,7 @@ class ParseRequest(BaseModel):
 @router.post("/parse")
 def parse_cv(
     body: ParseRequest,
+    background: BackgroundTasks,
     user_id: str = Depends(verify_jwt),
     sb: Client = Depends(get_supabase),
 ):
@@ -119,9 +121,14 @@ def parse_cv(
 
     try:
         result = sb.table("candidates").insert(row).execute()
-        return result.data[0]
+        new_candidate = result.data[0]
     except Exception as e:
         raise HTTPException(500, f"Failed to save candidate: {e}")
+
+    # ---- Fire-and-forget embedding (doesn't block the upload response) ----
+    background.add_task(embed_candidate, sb, user_id, new_candidate["id"])
+
+    return new_candidate
 
 
 # ---- GET /cv/{candidate_id}/profile ----

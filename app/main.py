@@ -7,6 +7,7 @@ This server handles only the heavy lifting:
   - CV parsing + AI extraction
   - Profile generation (.docx)
   - Candidate-job matching
+  - RAG-based natural-language candidate search
 
 All CRUD (candidates list, jobs, notes, pipeline) is handled
 directly by the React frontend via Supabase JS.
@@ -16,7 +17,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import settings
-from .routers import health, cv, matching
+from .routers import health, cv, matching, rag
 
 app = FastAPI(
     title="Pro Talent ATS API",
@@ -37,3 +38,12 @@ app.add_middleware(
 app.include_router(health.router)
 app.include_router(cv.router, prefix="/cv", tags=["cv"])
 app.include_router(matching.router, prefix="/jobs", tags=["matching"])
+app.include_router(rag.router, prefix="/rag", tags=["rag"])
+
+
+# ---- Pre-warm the embedding model so first query isn't slow ----
+@app.on_event("startup")
+async def warm_embedder():
+    """Load the embedding model into memory at startup, not on first request."""
+    from .rag.embeddings import _get_model
+    _get_model()
