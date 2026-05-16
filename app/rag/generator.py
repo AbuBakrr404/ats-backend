@@ -72,12 +72,35 @@ def generate_rag_response(query: str, candidates: list[dict]) -> dict:
         "Return your JSON response now."
     )
 
-    response = _client.messages.create(
-        model=settings.rag_chat_model,
-        max_tokens=1500,
-        system=RAG_SYSTEM,
-        messages=[{"role": "user", "content": user_message}],
-    )
+    # Retry up to 3 times on transient Anthropic 5xx errors
+    import time
+    import anthropic
+    response = None
+    for attempt in range(3):
+        try:
+            response = _client.messages.create(
+                model=settings.rag_chat_model,
+                max_tokens=1500,
+                system=RAG_SYSTEM,
+                messages=[{"role": "user", "content": user_message}],
+            )
+            break
+        except (anthropic.InternalServerError, anthropic.APITimeoutError):
+            if attempt < 2:
+                time.sleep(1 + attempt)   # 1s, then 2s backoff
+                continue
+            return {
+                "answer":     "The AI service is temporarily unavailable. Please try again in a moment.",
+                "candidates": [],
+                "reasoning":  "Anthropic API returned a transient error after 3 retries.",
+            }
+
+    if response is None:
+        return {
+            "answer":     "The AI service is temporarily unavailable.",
+            "candidates": [],
+            "reasoning":  "No response received.",
+        }
 
     text = response.content[0].text.strip()
     # Strip markdown fences if Claude wraps the JSON
